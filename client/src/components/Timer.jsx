@@ -1,142 +1,100 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useEffect, useState } from "react";
 
+import calculateTime from "../utils/calculateTime";
 import '../style.css';
 
-class Time {
-    constructor() {
-        this.cs = 0;
-        this.s = 0;
-        this.m = 0;
-    }
-
-    increment() {
-        this.cs++;
-
-        if (this.cs >= 100) {
-            this.cs = 0;
-            this.s++;
-
-            if (this.s >= 60) {
-                this.s = 0;
-                this.m++;
-            }
-        }
-
-        return this;
-    }
-
-    reset() {
-        this.cs = 0;
-        this.s = 0;
-        this.m = 0;
-
-        return this;
-    }
-
-    padZero(val) {
-        if (val < 10) {
-            return '0' + val.toString();
-        }
-
-        return val.toString();
-    }
-
-    displayString() {
-        return this.padZero(this.m) + ':' + this.padZero(this.s) + '.' + this.padZero(this.cs);
-    }
+const TIMING_PRECISION = 10;
+const KEYDOWN_TIMER_START_DELAY = 500;
+const TIME_COLORS = {
+    default: 'black',
+    notReady: 'red',
+    ready: 'green',
+    timing: 'black'
 }
 
-const INIT_TIME = '00:00.00';
-
-const Timer = (props) => {
+const TimerExperiment = (props) => {
     const [ ticks, setTicks ] = useState(0);
-    const [ time, setTime ] = useState(INIT_TIME);
+    const [ timeColor, setTimeColor ] = useState(TIME_COLORS.default);
 
-    const [ cs, setCs ] = useState(0);
-    const [ s, setS ] = useState(0);
-    const [ m, setM ] = useState(0);
+    const isTimingRef = useRef(false);
+    const intervalIdRef = useRef(0);
 
-    const idRef = useRef(0);
-
-    const padZero = (val) => {
-        if (val < 10) {
-            return '0' + val.toString();
+    const prepareToTime = (event) => {
+        if (isTimingRef.current || (event.key !== ' ' && event.key !== 'Spacebar') || event.repeat) {
+            return;
         }
 
-        return val.toString();
-    }
+        let isReady = false;
+        setTimeColor(TIME_COLORS.notReady);
 
-    const increment = () => {
-        setTicks(prevTicks => prevTicks + 1);
-
-        if (ticks + 1 >= 100) {
-            setS(prevS => prevS + 1);
-
-            if (s >= 60) {
-                setM(prevM => prevM + 1);
-                setS(0);
-            }
-            setCs(0);
+        const timeoutId = setTimeout(() => {
+            isReady = true;
+            setTimeColor(TIME_COLORS.ready);
             setTicks(0);
-        }
-    }
+        }, KEYDOWN_TIMER_START_DELAY);
 
-    const displayTime = () => {
-        const csa = ticks % 100;
-        const sa = (ticks - csa) / 100;
-        const ma = Math.floor(ticks / 6000);
+        window.addEventListener('keyup', () => {
+            beginTiming(isReady, timeoutId);
+        }, { once: true })
+    };
 
-        const str = padZero(ma) + ':' + padZero(sa) + '.' + padZero(csa);
+    /**
+     * Begins timing if the user held the spacebar key for longer than the
+     * KEYDOWN_TIMER_START_DELAY constant. This avoids inadvertant timer
+     * starts, as isReady will be true if and only if the timeout in
+     * prepareToTime() completes. In either case the timeout is cleared and
+     * the color of the display time is returned to its default.
+     * 
+     * If isReady is true, the isTimingRef ref's .current is set to true, the
+     * time() function is called, and the window listens for a keydown event,
+     * after which stopTiming() is called.
+     * 
+     * @param {Boolean} isReady The boolean value indicating whether the user
+     * held the space key long enough.
+     * @param {Number} timeoutId The ID of the timeout that determines whether
+     * the user held the spacebar long enough.
+     */
+    const beginTiming = (isReady, timeoutId) => {
+        clearTimeout(timeoutId);
+        setTimeColor(TIME_COLORS.default);
 
-        return str;
-    }
-
-    const handleKeydown = (event) => {
-        if (idRef.current !== 0) {
-            clearInterval(idRef.current);
-            idRef.current = 0;
+        if (!isReady) {
             return;
         }
 
-        if (event.key !== ' ' && event.key !== 'Spacebar') {
-            return;
-        }
+        isTimingRef.current = true;
+        time();
 
-        setTicks(0);
-        //setTime(time.reset());
-        window.addEventListener('keyup', handleKeyup, { once: true });
+        window.addEventListener('keydown', stopTiming, { once: true });
+    };
+
+    /**
+     * Increments ticks by 1 every TIMING_PRECISION milliseconds. The interval
+     * is cancelled during timing when any key is pressed.
+     * 
+     * @param {Number} currTicks The current number of milliseconds since the
+     * timer start.
+     */
+    const time = () => {
+        intervalIdRef.current = setInterval(() => {
+            setTicks(prevTicks => prevTicks + 1);
+        }, TIMING_PRECISION);
+    };
+
+    const stopTiming = () => {
+        clearInterval(intervalIdRef.current);
+        intervalIdRef.current = 0;
+        isTimingRef.current = false;
     }
 
-    const handleKeyup = () => {
-        if (idRef.current !== 0) {
-            return;
-        }
-
-        idRef.current = setInterval(() => {
-            //setTicks(t => t + 1);
-            increment();
-            //setTime(displayTime());
-            //setTime(time.increment());
-        }, 10);
-
-        window.addEventListener('keydown', handleKeydown, { once: true });
-    }
-
+    /** Adds the prepareToTime function to a global window keydown event listener */
     useEffect(() => {
-        console.log('new render');
-        
-        window.addEventListener('keydown', handleKeydown);
-
-        return () => window.removeEventListener('keydown', handleKeydown);
-    }, [ ]);
+        window.addEventListener('keydown', prepareToTime);
+    }, [])
 
     return (
-        <div>
-            <h1 className="text_center">Timer</h1>
-            <h2>Time: { padZero(m) }:{ padZero(s) }.{ padZero(ticks) }</h2>
-            <h2>TimeStr: { displayTime() }</h2>
-        </div>
+        <h1 className="text_center" style={{ color: timeColor }}>{ calculateTime(ticks) }</h1>
     );
 };
 
-export default Timer;
+export default TimerExperiment;
